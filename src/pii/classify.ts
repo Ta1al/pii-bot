@@ -39,8 +39,8 @@ export interface RiskResult {
 export interface RiskTimings {
   /** Time spent waiting for the single inference slot. */
   queueMs: number;
-  /** Number of messages already waiting when this assessment was queued. */
-  queuedMessages: number;
+  /** Queue size, including this assessment, when it was queued. */
+  queueSize: number;
   /** Time spent sending the request and processing the model response. */
   processMs: number;
 }
@@ -216,10 +216,10 @@ async function acquire(): Promise<number | null> {
     return 0;
   }
   if (waiting.length >= MAX_PENDING) return null;
-  const queuedMessages = waiting.length;
+  const queueSize = waiting.length + 1;
   await new Promise<void>((resolve) => waiting.push(resolve));
   active++;
-  return queuedMessages;
+  return queueSize;
 }
 
 function release(): void {
@@ -234,8 +234,8 @@ function release(): void {
  */
 export async function assessRisk(input: RiskInput): Promise<RiskAssessment> {
   const queueStart = Date.now();
-  const queuedMessages = await acquire();
-  if (queuedMessages === null) {
+  const queueSize = await acquire();
+  if (queueSize === null) {
     throw new Error("risk queue is full; skipping message");
   }
   const processStart = Date.now();
@@ -257,7 +257,7 @@ export async function assessRisk(input: RiskInput): Promise<RiskAssessment> {
       result: decide(body),
       timings: {
         queueMs: processStart - queueStart,
-        queuedMessages,
+        queueSize,
         processMs: Date.now() - processStart,
       },
     };
