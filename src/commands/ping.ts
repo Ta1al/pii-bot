@@ -8,9 +8,9 @@ const ping: Command = {
   async execute(interaction: ChatInputCommandInteraction) {
     const sent = await interaction.reply({
       content: "Pinging...",
-      fetchReply: true,
+      withResponse: true,
     });
-    const latency = sent.createdTimestamp - interaction.createdTimestamp;
+    const latency = (sent.resource?.message?.createdTimestamp ?? Date.now()) - interaction.createdTimestamp;
     await interaction.editReply(`Pong! Latency: ${latency}ms | WebSocket: ${interaction.client.ws.ping}ms`);
   },
 };
