@@ -63,7 +63,7 @@ export default {
       await message.reply({
         content:
           describeRisk(result) +
-          `\n\nMessages in queue when received: ${timings.queueSize} · ` +
+          `\n\n` +
           `Queued for ${timings.queueMs} ms · Processed in ${timings.processMs} ms.`,
         allowedMentions: { repliedUser: false },
       });
