@@ -40,22 +40,16 @@ All questions are scoped to
 *me*, the author of the current message, so somebody else's email in the
 history does not get attributed to the author.
 
-Every message gets a reply with the tier, kind, and tier breakdown,
-for example:
+Instead of replying, every message gets a risk reaction from 0️⃣ to 🔟 and a
+kind reaction, such as 📍 for location or 📞 for contact. Flagged messages also
+get a ⚠️ reaction, so they have three reactions; unflagged messages have the
+risk and kind reactions. Reactions are queued globally and limited to five per
+five-second window to stay below Discord's reaction rate limit.
 
-```
-tier: medium (0.56) · kind: location (0.37)
-none 0.35 · weak 0.07 · medium 0.56 · strong 0.01
-```
-
-The reply also reports the inference queue size when the message was received
-(including that message when it had to wait), plus time spent waiting separately
-from time spent processing the model request.
-
-Flagged messages also get a ⚠️ reaction. Context is held in memory only, capped
-at 20 messages per channel and 200 channels, and is seeded from the channel once
-on first use. Bot messages are excluded from the buffer, so it holds the last 20
-messages written by people; the seed pages back up to 3×100 messages to fill it.
+Context is held in memory only, capped at 20 messages per channel and 200
+channels, and is seeded from the channel once on first use. Bot messages are
+excluded from the buffer, so it holds the last 20 messages written by people;
+the seed pages back up to 3×100 messages to fill it.
 
 ### Measured accuracy
 
@@ -175,6 +169,10 @@ probability for every key, so no retraining is involved.
 ## Commands
 
 - `/ping` — replies with bot and websocket latency
+- Message context menu **Risk details** — shows the stored tier, probabilities,
+  classification kind, timings, and conversation context for an assessed
+  message. Results are kept in memory only, so messages assessed before the
+  current process started may not have details available.
 
 ## Adding commands
 

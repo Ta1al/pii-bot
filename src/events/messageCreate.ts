@@ -1,8 +1,26 @@
 import { Events, Message } from "discord.js";
-import { assessRisk, describeRisk, formatContext } from "../pii/classify.js";
+import {
+  assessRisk,
+  formatContext,
+  getRiskNumber,
+} from "../pii/classify.js";
+import { queueReaction } from "../discord/reactionQueue.js";
 import { getHistory, getReply, remember } from "../pii/history.js";
+import { storeRiskAssessment } from "../pii/results.js";
 
 const DEBUG = true;
+const KIND_EMOJIS: Record<string, string> = {
+  contact: "📞",
+  location: "📍",
+  demographic: "🧑",
+  affiliation: "🏢",
+  routine: "🕒",
+  appearance: "👀",
+  credential: "🔐",
+  relationship: "🤝",
+  sensitive: "🧩",
+  none: "❔",
+};
 
 export default {
   name: Events.MessageCreate,
@@ -33,6 +51,11 @@ export default {
 
       const assessment = await assessRisk(riskInput);
       const { result, timings } = assessment;
+      storeRiskAssessment(message.id, {
+        result,
+        input: riskInput,
+        timings,
+      });
 
       if (DEBUG) {
         console.log("[risk] raw", {
@@ -56,19 +79,27 @@ export default {
           JSON.stringify(message.content.slice(0, 160))
       );
 
-      if (result.flagged) {
-        await message.react("⚠️");
-      }
-
-      await message.reply({
-        content:
-          describeRisk(result) +
-          `\n\n` +
-          `Queued for ${timings.queueMs} ms · Processed in ${timings.processMs} ms.`,
-        allowedMentions: { repliedUser: false },
-      });
+      if (result.flagged) await queueReaction(message, "⚠️");
+      await queueReaction(message, riskEmoji(getRiskNumber(result)));
+      await queueReaction(message, KIND_EMOJIS[result.kind] ?? KIND_EMOJIS.none);
     } catch (error) {
       console.error("[risk] Assessment failed:", error);
     }
   },
 };
+
+function riskEmoji(number: number): string {
+  const digits = [
+    "0️⃣",
+    "1️⃣",
+    "2️⃣",
+    "3️⃣",
+    "4️⃣",
+    "5️⃣",
+    "6️⃣",
+    "7️⃣",
+    "8️⃣",
+    "9️⃣",
+  ];
+  return number === 10 ? "🔟" : digits[number] ?? digits[0];
+}

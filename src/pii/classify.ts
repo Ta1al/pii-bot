@@ -300,6 +300,21 @@ export function describeRisk(result: RiskResult): string {
   );
 }
 
+/** Converts the model's tier distribution into a 0-10 expected risk score. */
+export function getRiskNumber(result: RiskResult): number {
+  const severity: Record<RiskTier, number> = {
+    none: 0,
+    weak: 3,
+    medium: 7,
+    strong: 10,
+  };
+  const weighted = TIER_ORDER.reduce(
+    (total, tier) => total + (result.scores[tier] ?? 0) * severity[tier],
+    0
+  );
+  return Math.max(0, Math.min(10, Math.round(weighted)));
+}
+
 function decide(body: SystemOneResponse): RiskResult {
   const tierAnswer = body.answers.tier;
   const kindAnswer = body.answers.kind;

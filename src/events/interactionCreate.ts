@@ -9,7 +9,9 @@ interface ExtendedClient extends Client {
 export default {
   name: Events.InteractionCreate,
   async execute(interaction: Interaction, client: ExtendedClient) {
-    if (!interaction.isChatInputCommand()) return;
+    if (!interaction.isChatInputCommand() && !interaction.isMessageContextMenuCommand()) {
+      return;
+    }
 
     const command = client.commands.get(interaction.commandName);
 
