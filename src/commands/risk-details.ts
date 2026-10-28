@@ -1,6 +1,7 @@
 import {
   ApplicationCommandType,
   ContextMenuCommandBuilder,
+  MessageFlags,
 } from "discord.js";
 import type { Command } from "../types/command.js";
 import { getRiskAssessment } from "../pii/results.js";
@@ -12,7 +13,7 @@ const riskDetails: Command = {
   async execute(interaction) {
     if (!interaction.isMessageContextMenuCommand()) return;
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const assessment = getRiskAssessment(interaction.targetId);
     if (!assessment) {
       await interaction.editReply(
