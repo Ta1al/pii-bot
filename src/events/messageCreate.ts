@@ -1,5 +1,5 @@
 import { Events, Message } from "discord.js";
-import { assessRisk, describeRisk } from "../pii/classify.js";
+import { assessRisk, describeRisk, formatContext } from "../pii/classify.js";
 import { getHistory, getReply, remember } from "../pii/history.js";
 
 const DEBUG = true;
@@ -15,7 +15,7 @@ export default {
       const history = await getHistory(message);
       const reply = await getReply(message);
 
-      const assessment = await assessRisk({
+      const riskInput = {
         current: message.content,
         currentAuthorId: message.author.id,
         history: history.map((entry) => ({
@@ -25,7 +25,8 @@ export default {
         reply: reply
           ? { authorId: reply.authorId, content: reply.content }
           : null,
-      });
+      };
+      const assessment = await assessRisk(riskInput);
       const { result, timings } = assessment;
 
       // The message is context for whatever comes next.
@@ -41,6 +42,7 @@ export default {
           kind: result.kind,
           kindScore: result.kindScore,
           scores: result.scores,
+          context: formatContext(riskInput),
         });
         console.log("[risk] timings", timings);
       }

@@ -18,6 +18,11 @@ export interface RiskInput {
   reply?: ContextMessage | null;
 }
 
+export interface RiskContextEntry {
+  speaker: string;
+  content: string;
+}
+
 export interface RiskResult {
   flagged: boolean;
   /** Tier the model chose. */
@@ -137,14 +142,10 @@ interface SystemOneResponse {
   };
 }
 
-/** Renders the conversation into the single state string the model reads. */
-export function buildState({
-  current,
-  currentAuthorId,
-  history,
-  reply,
-}: RiskInput): string {
-  const parts: string[] = [];
+/** Assigns stable speaker labels for one assessment. */
+function labelContext(input: RiskInput): RiskContextEntry[] {
+  const { current, currentAuthorId, history, reply } = input;
+  const entries: RiskContextEntry[] = [];
   const participants = new Map<string, string>();
   let nextParticipant = 1;
 
@@ -158,19 +159,46 @@ export function buildState({
   };
 
   participants.set(currentAuthorId, "me");
+  history?.forEach((message) => {
+    entries.push({ speaker: labelFor(message.authorId), content: message.content });
+  });
+  if (reply) {
+    entries.push({ speaker: labelFor(reply.authorId), content: reply.content });
+  }
+  entries.push({ speaker: "me", content: current });
+  return entries;
+}
+
+/** Returns the complete context in a compact form suitable for logs. */
+export function formatContext(input: RiskInput): RiskContextEntry[] {
+  return labelContext(input).map(({ speaker, content }) => ({
+    speaker,
+    content: content.slice(0, 10),
+  }));
+}
+
+/** Renders the conversation into the single state string the model reads. */
+export function buildState(input: RiskInput): string {
+  const { history, reply } = input;
+  const context = labelContext(input);
+  const parts: string[] = [];
 
   if (history && history.length > 0) {
-    const lines = history.map((m) => `${labelFor(m.authorId)}: ${m.content}`);
+    const lines = context
+      .slice(0, history.length)
+      .map((entry) => `${entry.speaker}: ${entry.content}`);
     parts.push(`Earlier in this channel:\n${lines.join("\n")}`);
   }
 
   if (reply) {
+    const replyEntry = context[history?.length ?? 0];
     parts.push(
-      `The current message replies to:\n${labelFor(reply.authorId)}: ${reply.content}`
+      `The current message replies to:\n${replyEntry.speaker}: ${replyEntry.content}`
     );
   }
 
-  parts.push(`Current message from me:\n${current}`);
+  const currentEntry = context[context.length - 1];
+  parts.push(`Current message from me:\n${currentEntry.content}`);
 
   return parts.join("\n");
 }
