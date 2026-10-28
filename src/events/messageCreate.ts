@@ -26,11 +26,13 @@ export default {
           ? { authorId: reply.authorId, content: reply.content }
           : null,
       };
+
+      // Record the message before inference so messages arriving while this
+      // request is queued see it in their own history snapshot.
+      remember(message);
+
       const assessment = await assessRisk(riskInput);
       const { result, timings } = assessment;
-
-      // The message is context for whatever comes next.
-      remember(message);
 
       if (DEBUG) {
         console.log("[risk] raw", {
