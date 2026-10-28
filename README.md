@@ -13,42 +13,64 @@ model itself on boot.
 
 ## How it works
 
-Each message is judged on its own, in a single forward pass, by two questions:
+Each message is judged in a single forward pass, with the surrounding
+conversation as context: the **last 20 messages** in the channel plus the
+message it **replies to**, if it is a reply. Two questions are asked:
 
-1. **Tier** — `none` / `weak` / `medium` / `strong`, how much the message
-   narrows down its author.
+1. **Tier** — `none` / `weak` / `medium` / `strong`, how much the current
+   message narrows down its author, on its own or together with what was said
+   earlier.
 2. **Kind** — what sort of detail it is: `contact`, `location`, `demographic`,
    `affiliation`, `routine`, `appearance`, `credential`, `relationship`.
-
 A message is flagged when:
 
 - the tier is `strong`, or
 - the tier is `medium` with probability `>= RISK_MEDIUM_THRESHOLD` (0.6), or
 - the tier undersells the detail but the kind question is confident
   (`>= RISK_KIND_RESCUE`, 0.8). This catches things like "I drive a yellow 2019
-  Mini Cooper", which scores 0.46 on tier but 0.98 on `appearance`.
+  Mini Cooper", which scores 0.46 on tier but 0.98 on `appearance`, as well as
+  location evidence assembled across messages.
 
-Flagged messages get a ⚠️ reaction and a console line naming the tier, kind and
-score. Messages are not stored, and no state accumulates across messages.
+Context lets the model combine details: "I'm a nurse at St Mary's in Leeds"
+followed later by "my shift starts at 6 tomorrow" is flagged as `medium`
+`routine`, while either line alone is weaker. All questions are scoped to
+*me*, the author of the current message, so somebody else's email in the
+history does not get attributed to the author.
+
+Every message gets a reply with the tier, kind, and tier breakdown,
+for example:
+
+```
+tier: medium (0.56) · kind: location (0.37)
+none 0.35 · weak 0.07 · medium 0.56 · strong 0.01
+```
+
+Flagged messages also get a ⚠️ reaction. Context is held in memory only, capped
+at 20 messages per channel and 200 channels, and is seeded from the channel once
+on first use. Bot messages are excluded from the buffer, so it holds the last 20
+messages written by people; the seed pages back up to 3×100 messages to fill it.
 
 ### Measured accuracy
 
-On a 41-message set (23 benign, 10 quasi-identifier, 8 direct identifier), on
-CPU: **40/41 correct, 0 false positives**, 1 false negative ("our team of four
-in the Berlin office is hiring", tier 0.52).
+On a 39-message regression set (23 benign, 10 quasi-identifier, 6 direct
+identifier), with the current prompts: **39/39 correct, 0 false positives, 0
+false negatives**. Context composition was verified separately on travel,
+schedule, opinion, standalone trivia, and direct identifier cases.
 
 Representative scores:
 
 | message | tier | kind |
 | --- | --- | --- |
-| `pizza at 8 tonight?` | none 0.81 | none |
-| `we should refactor this module` | none 0.99 | none |
-| `I'm a 34-year-old nurse at St Mary's in Leeds` | medium 0.98 | demographic |
-| `I work nights at the Amazon warehouse in Coventry` | medium 0.88 | affiliation |
-| `just moved to a flat above the bakery on Mill Road` | medium 0.78 | location |
-| `my sister Rachel is picking me up after dialysis` | medium 0.52 | relationship |
-| `email me at jane.doe@acme.com` | strong 0.91 | contact |
-| `my badge id is EMP-4471` | strong 0.88 | credential |
+| `pizza at 8 tonight?` | none | none |
+| `we should refactor this module` | none | none |
+| `I'm a 34-year-old nurse at St Mary's in Leeds` | medium | demographic |
+| `I work nights at the Amazon warehouse in Coventry` | medium | affiliation |
+| `just moved to a flat above the bakery on Mill Road` | medium | location |
+| `I'm going some place tomorrow` → `the one with the eiffel tower` | medium | location |
+| `email me at jane.doe@acme.com` | strong | contact |
+
+Composed location evidence is evaluated by the same context-aware tier and kind
+questions as every other identifying detail.
 
 ## Requirements
 
@@ -107,6 +129,10 @@ GatewayIntentBits.DirectMessages,  // only if you want to scan DMs too
 `MessageContent` must also be enabled for your application in the Discord
 Developer Portal, otherwise `message.content` is always empty.
 
+The bot also needs the **Read Message History** permission in each channel it
+scans, for the 20-message context and for fetching replied-to messages. Without
+it the bot logs a warning and falls back to judging the message alone.
+
 ## Configuration
 
 All optional, set in `.env`:
@@ -119,6 +145,7 @@ All optional, set in `.env`:
 | `LLAMA_CTX_SIZE` | `8192` | Context and batch size; one question is one batch |
 | `RISK_MEDIUM_THRESHOLD` | `0.6` | Confidence needed to flag a `medium` tier |
 | `RISK_KIND_RESCUE` | `0.8` | Kind confidence that promotes a low tier to `medium` |
+| `RISK_TIMEOUT_MS` | `120000` | Per-request timeout; CPU inference can take 30 s |
 | `RISK_MAX_PENDING` | `200` | Max queued messages before skipping |
 | `RISK_DEBUG` | `0` | Log raw scores for every message |
 | `LLAMA_SERVER_VERBOSE` | `0` | Show llama.cpp's own logs |
@@ -175,8 +202,15 @@ export default mycommand;
   git-ignored; they are large and platform specific.
 - Inference is CPU-bound: roughly 1–3 s per message on a laptop. Requests are
   queued, so a burst in a busy channel will lag rather than fail.
-- A single message is judged alone. "I'm 34" is flagged as `demographic`
-  medium even though it is harmless by itself — that is intentional, since the
-  point is what it enables when combined with other posts.
+- Replying to every message is chatty and will hit Discord's per-channel rate
+  limit (about 5 messages per 5 s) in active channels. If that becomes a problem,
+  reply only when `flagged`, or only for tiers above `weak`.
+- The current message is judged together with the last 20 messages and any
+  replied-to message. "I'm 34" is flagged as `demographic` medium even though it
+  is harmless by itself — that is intentional, since the point is what it
+  enables when combined with other posts.
+- History is cached per channel in memory and seeded with one API fetch. If the
+  bot misses messages (offline, or no Read Message History), that gap stays
+  until the channel cache is evicted.
 - Treat the tier as a hint, not a verdict. 2B parameters is small; expect
   borderline calls to wobble.
