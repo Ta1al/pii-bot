@@ -6,3 +6,8 @@ dist
 .history
 .vscode
 coverage
+
+# Local model weights and llama.cpp binaries (large, platform specific)
+models/
+vendor/llama/
+*.gguf

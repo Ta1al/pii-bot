@@ -4,6 +4,7 @@ import { readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import type { Command } from "./types/command.js";
+import { startModelServer, stopModelServer } from "./pii/llamaServer.js";
 
 config();
 
@@ -61,4 +62,16 @@ for (const file of eventFiles) {
   console.log(`Loaded event: ${event.name}`);
 }
 
-client.login(process.env.DISCORD_TOKEN);
+// Load the PII model before connecting, so the first messages are not missed.
+await startModelServer();
+
+await client.login(process.env.DISCORD_TOKEN);
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    console.log(`\nReceived ${signal}, shutting down...`);
+    stopModelServer();
+    void client.destroy();
+    process.exit(0);
+  });
+}
