@@ -45,8 +45,9 @@ tier: medium (0.56) · kind: location (0.37)
 none 0.35 · weak 0.07 · medium 0.56 · strong 0.01
 ```
 
-The reply also reports time spent waiting for the inference queue separately
-from time spent processing the model request.
+The reply also reports the number of messages already waiting in the inference
+queue, plus time spent waiting separately from time spent processing the model
+request.
 
 Flagged messages also get a ⚠️ reaction. Context is held in memory only, capped
 at 20 messages per channel and 200 channels, and is seeded from the channel once
