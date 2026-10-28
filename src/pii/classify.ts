@@ -31,6 +31,18 @@ export interface RiskResult {
   scores: Record<string, number>;
 }
 
+export interface RiskTimings {
+  /** Time spent waiting for the single inference slot. */
+  queueMs: number;
+  /** Time spent sending the request and processing the model response. */
+  processMs: number;
+}
+
+export interface RiskAssessment {
+  result: RiskResult;
+  timings: RiskTimings;
+}
+
 const MEDIUM_THRESHOLD = Number(process.env.RISK_MEDIUM_THRESHOLD ?? 0.55);
 const KIND_RESCUE = Number(process.env.RISK_KIND_RESCUE ?? 0.8);
 const TIMEOUT_MS = Number(process.env.RISK_TIMEOUT_MS ?? 120_000);
@@ -189,10 +201,12 @@ function release(): void {
  * conversation, narrows down its author. This is re-identification risk, not a
  * traditional PII regex.
  */
-export async function assessRisk(input: RiskInput): Promise<RiskResult> {
+export async function assessRisk(input: RiskInput): Promise<RiskAssessment> {
+  const queueStart = Date.now();
   if (!(await acquire())) {
     throw new Error("risk queue is full; skipping message");
   }
+  const processStart = Date.now();
 
   try {
     const res = await fetch(`${serverUrl}/v1/systemone`, {
@@ -207,7 +221,13 @@ export async function assessRisk(input: RiskInput): Promise<RiskResult> {
     }
 
     const body = (await res.json()) as SystemOneResponse;
-    return decide(body);
+    return {
+      result: decide(body),
+      timings: {
+        queueMs: processStart - queueStart,
+        processMs: Date.now() - processStart,
+      },
+    };
   } finally {
     release();
   }
@@ -222,6 +242,7 @@ export function describeRisk(result: RiskResult): string {
     .join(" · ");
 
   return (
+    `${result.flagged ? "⚠️ FLAGGED" : "✅ clear"} ` +
     `tier: ${result.tier} (${result.score.toFixed(2)}) · ` +
     `kind: ${result.kind} (${result.kindScore.toFixed(2)})\n` +
     scores

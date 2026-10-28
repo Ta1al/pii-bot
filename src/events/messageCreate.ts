@@ -15,8 +15,7 @@ export default {
       const history = await getHistory(message);
       const reply = await getReply(message);
 
-      const time1 = new Date().getTime();
-      const result = await assessRisk({
+      const assessment = await assessRisk({
         current: message.content,
         currentAuthorId: message.author.id,
         history: history.map((entry) => ({
@@ -27,7 +26,7 @@ export default {
           ? { authorId: reply.authorId, content: reply.content }
           : null,
       });
-      const time2 = new Date().getTime();
+      const { result, timings } = assessment;
 
       // The message is context for whatever comes next.
       remember(message);
@@ -43,7 +42,7 @@ export default {
           kindScore: result.kindScore,
           scores: result.scores,
         });
-        console.log(`[risk] assessment took ${time2 - time1} ms`);
+        console.log("[risk] timings", timings);
       }
 
       console.log(
@@ -58,7 +57,9 @@ export default {
       }
 
       await message.reply({
-        content: describeRisk(result) + `\n\nTook ${time2 - time1} ms to assess.`,
+        content:
+          describeRisk(result) +
+          `\n\nQueued for ${timings.queueMs} ms · Processed in ${timings.processMs} ms.`,
         allowedMentions: { repliedUser: false },
       });
     } catch (error) {
