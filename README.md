@@ -21,19 +21,22 @@ message it **replies to**, if it is a reply. Two questions are asked:
    message narrows down its author, on its own or together with what was said
    earlier.
 2. **Kind** — what sort of detail it is: `contact`, `location`, `demographic`,
-   `affiliation`, `routine`, `appearance`, `credential`, `relationship`.
+   `affiliation`, `routine`, `appearance`, `credential`, `relationship`, or
+   `sensitive`.
 A message is flagged when:
 
 - the tier is `strong`, or
-- the tier is `medium` with probability `>= RISK_MEDIUM_THRESHOLD` (0.6), or
-- the tier undersells the detail but the kind question is confident
-  (`>= RISK_KIND_RESCUE`, 0.8). This catches things like "I drive a yellow 2019
-  Mini Cooper", which scores 0.46 on tier but 0.98 on `appearance`, as well as
-  location evidence assembled across messages.
+- the tier is `medium` with probability `>= RISK_MEDIUM_THRESHOLD` (0.65), or
+- the tier undersells the detail but the kind question is very confident
+  (`>= RISK_KIND_RESCUE`, 0.9) and the tier has at least some medium-risk
+  support (`>= RISK_KIND_RESCUE_MEDIUM_SUPPORT`, 0.2). This still catches
+  useful details such as a distinctive vehicle without flagging every ordinary
+  mention of a relationship, demographic, or possession.
 
-Context lets the model combine details: "I'm a nurse at St Mary's in Leeds"
-followed later by "my shift starts at 6 tomorrow" is flagged as `medium`
-`routine`, while either line alone is weaker. All questions are scoped to
+Context lets the model combine details and resolve short follow-up fragments:
+"I'm a nurse at St Mary's in Leeds" followed later by "my shift starts at 6
+tomorrow" is flagged as `medium` `routine`, while either line alone is weaker.
+All questions are scoped to
 *me*, the author of the current message, so somebody else's email in the
 history does not get attributed to the author.
 
@@ -147,8 +150,9 @@ All optional, set in `.env`:
 | `LLAMA_SERVER_BIN` | `vendor/llama/llama-server` | llama.cpp server binary |
 | `LLAMA_PORT` | `8080` | Local port for the server |
 | `LLAMA_CTX_SIZE` | `8192` | Context and batch size; one question is one batch |
-| `RISK_MEDIUM_THRESHOLD` | `0.6` | Confidence needed to flag a `medium` tier |
-| `RISK_KIND_RESCUE` | `0.8` | Kind confidence that promotes a low tier to `medium` |
+| `RISK_MEDIUM_THRESHOLD` | `0.65` | Confidence needed to flag a `medium` tier |
+| `RISK_KIND_RESCUE` | `0.9` | Kind confidence needed for a rescue promotion |
+| `RISK_KIND_RESCUE_MEDIUM_SUPPORT` | `0.2` | Minimum medium-tier probability needed for a rescue promotion |
 | `RISK_TIMEOUT_MS` | `120000` | Per-request timeout; CPU inference can take 30 s |
 | `RISK_MAX_PENDING` | `200` | Max queued messages before skipping |
 | `RISK_DEBUG` | `0` | Log raw scores for every message |
@@ -160,9 +164,10 @@ spawning another.
 ## Tuning the taxonomy
 
 Both questions live in `QUESTIONS` in `src/pii/classify.ts`. To make the bot
-stricter, remove `weak` from the tier criteria or raise
-`RISK_MEDIUM_THRESHOLD`. To catch more, lower it toward `0.45` and drop
-`RISK_KIND_RESCUE` to `0.7`.
+stricter, raise `RISK_MEDIUM_THRESHOLD` or
+`RISK_KIND_RESCUE_MEDIUM_SUPPORT`. To catch more, lower the thresholds
+cautiously; setting `RISK_KIND_RESCUE_MEDIUM_SUPPORT` to `0` restores
+kind-only rescue behavior and is likely to increase false positives.
 
 Adding a kind is a single entry in the `kind` criteria map; the model returns a
 probability for every key, so no retraining is involved.

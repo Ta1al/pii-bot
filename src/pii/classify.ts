@@ -50,8 +50,11 @@ export interface RiskAssessment {
   timings: RiskTimings;
 }
 
-const MEDIUM_THRESHOLD = Number(process.env.RISK_MEDIUM_THRESHOLD ?? 0.55);
-const KIND_RESCUE = Number(process.env.RISK_KIND_RESCUE ?? 0.8);
+const MEDIUM_THRESHOLD = Number(process.env.RISK_MEDIUM_THRESHOLD ?? 0.65);
+const KIND_RESCUE = Number(process.env.RISK_KIND_RESCUE ?? 0.9);
+const KIND_RESCUE_MEDIUM_SUPPORT = Number(
+  process.env.RISK_KIND_RESCUE_MEDIUM_SUPPORT ?? 0.2
+);
 const TIMEOUT_MS = Number(process.env.RISK_TIMEOUT_MS ?? 120_000);
 const MAX_PENDING = Number(process.env.RISK_MAX_PENDING ?? 200);
 
@@ -63,33 +66,42 @@ const QUESTIONS = {
       "was written by me. Judge only information about me, not information " +
       "about somebody else or a hypothetical person. Combine compatible clues " +
       "from the current message, earlier messages, and the replied-to message. " +
-      "A clue may be indirect, implied, or identifying only in combination. " +
-      "Rate how much the resulting information narrows down who I am, where I " +
-      "am, or what can be inferred about my circumstances.",
+      "A clue may be indirect or identifying only in combination, but do not " +
+      "treat generic personal conversation as risky merely because it is true " +
+      "about me. Rate whether a stranger could use the resulting information " +
+      "to identify, locate, contact, profile, manipulate, impersonate, access, " +
+      "or target me. Resolve ordinary conversational ellipsis and fragments: " +
+      "a short current message can complete or specify a first-person fact " +
+      "introduced earlier by the same speaker. The current message must add, " +
+      "confirm, or complete the risky fact; do not flag it only because an " +
+      "unrelated earlier message contained personal information.",
     criteria: {
       none:
-        "No meaningful identifying information about me. This includes " +
-        "general conversation, technical discussion, opinions, questions, " +
-        "trivia, and facts that are not connected to me.",
+      "No actionable identifying or targeting information about me. This " +
+      "includes general conversation, technical discussion, opinions, " +
+      "questions, trivia, ordinary family or relationship references, " +
+      "generic preferences, and facts that are not connected to me.",
       weak:
       "A broad, low-uniqueness fact about me that is shared by many people " +
-      "and does not materially narrow the candidate group. A single vague " +
-      "feeling, preference, activity, time, or quantity usually belongs here " +
-      "when it is not linked to another identifying clue.",
+      "and is not useful for identifying, locating, contacting, profiling, " +
+      "or targeting me. A single vague feeling, preference, activity, time, " +
+      "or quantity usually belongs here when it is not linked to another " +
+      "identifying clue.",
       medium:
-      "A quasi-identifier that narrows me to a substantially smaller group, " +
-      "or becomes identifying when combined with other clues. This can be a " +
-      "demographic attribute, occupation or affiliation, geographic or " +
-      "situational information, schedule or plan, distinctive possession or " +
-      "appearance, relationship, or rare personal circumstance. Count both " +
-      "named and indirectly described details, including details assembled " +
-      "across messages.",
+      "Information that could materially help identify, locate, contact, " +
+      "profile, manipulate, impersonate, access, or target me, even if it " +
+      "is not unique alone. This includes a specific area or venue, an " +
+      "employer or school tied to me, a schedule or imminent plan, a " +
+      "distinctive possession, a vulnerability, health or financial detail, " +
+      "a secret, a rare circumstance, or compatible clues assembled across " +
+      "messages. Do not use this tier for an ordinary fact unless the " +
+      "conversation makes it meaningfully useful against me.",
       strong:
-      "A direct identifier or highly sensitive secret belonging to me, such " +
-      "as contact details that can reach me, a precise address, an official " +
-      "identifier, account or payment information, password, token, or " +
-      "equivalent credential. Use this tier when the information can identify " +
-      "or access me directly, not merely because it is unusual.",
+      "A direct identifier or highly sensitive secret belonging to me that " +
+      "can identify, reach, impersonate, or access me directly: a precise " +
+      "address, email, phone number, official identifier, account or payment " +
+      "information, password, token, or equivalent credential. Do not use " +
+      "this tier merely because a fact is unusual or sensitive.",
     },
   },
   kind: {
@@ -98,7 +110,10 @@ const QUESTIONS = {
       "Identify the main kind of identifying information about me revealed by " +
       "the conversation. Consider the current message together with compatible " +
       "earlier clues. Ignore details about other people, examples, and topics " +
-      "that are not connected to me. Choose none when there is no such detail.",
+      "that are not connected to me. Resolve short replies and fragments using " +
+      "the same-speaker context. Choose none when the message only mentions " +
+      "a normal personal topic without creating a useful way to identify, " +
+      "locate, contact, profile, manipulate, or target me.",
     criteria: {
       none: "No identifying detail about me",
       contact:
@@ -126,6 +141,10 @@ const QUESTIONS = {
       relationship:
         "A person or relationship connected to me, such as a family member, " +
         "partner, friend, colleague, or dependent",
+      sensitive:
+        "Personal information that could be used to manipulate, shame, exploit, " +
+        "or pressure me, including health, emotional, financial, legal, or " +
+        "other vulnerabilities not better described by another kind",
     },
   },
 } as const;
@@ -275,8 +294,7 @@ export function describeRisk(result: RiskResult): string {
     .join(" · ");
 
   return (
-    `${result.flagged ? "⚠️ FLAGGED" : "✅ clear"} ` +
-    `tier: ${result.tier} (${result.score.toFixed(2)}) · ` +
+    `risk: **${result.tier}** (${result.score.toFixed(2)}) · ` +
     `kind: ${result.kind} (${result.kindScore.toFixed(2)})\n` +
     scores
   );
@@ -295,9 +313,15 @@ function decide(body: SystemOneResponse): RiskResult {
 
   const strong = tier === "strong";
   const medium = tier === "medium" && score >= MEDIUM_THRESHOLD;
-  // The tier question sometimes undersells a detail that the kind question
-  // recognises confidently, e.g. a distinctive vehicle.
-  const rescued = !strong && !medium && kind !== "none" && kindScore >= KIND_RESCUE;
+  // Rescue only when both questions agree that there is meaningful risk. A
+  // confident kind alone is not enough: benign messages often mention a
+  // relationship, demographic, or possession without exposing the author.
+  const rescued =
+    !strong &&
+    !medium &&
+    kind !== "none" &&
+    kindScore >= KIND_RESCUE &&
+    (scores.medium ?? 0) >= KIND_RESCUE_MEDIUM_SUPPORT;
   const flagged = strong || medium || rescued;
   const effectiveTier: RiskTier = strong ? "strong" : flagged ? "medium" : tier;
 
