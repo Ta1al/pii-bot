@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -17,7 +18,34 @@ const HOST = process.env.LLAMA_HOST ?? "127.0.0.1";
 const CTX_SIZE = process.env.LLAMA_CTX_SIZE ?? "8192";
 const VERBOSE = process.env.LLAMA_SERVER_VERBOSE === "1";
 
-export const serverUrl = `http://${HOST}:${PORT}`;
+// Optional remote "System One" backend (TypeSafe Jev via OpenCode). When an
+// OpenCode API key is present we skip the local llama-server entirely and
+// call the hosted endpoint instead.
+const API_KEY =
+  process.env.OPENCODE_APIKEY ??
+  process.env.OPENCODE_API_KEY ??
+  process.env.OPENCODE_API_TOKEN ??
+  "";
+const REMOTE_ENDPOINT =
+  process.env.JEV_ENDPOINT ??
+  process.env.OPENCODE_SYSTEMONE_URL ??
+  "https://opencode.ai/inference/systemone/v1/systemone";
+const REMOTE_MODEL =
+  process.env.JEV_MODEL ?? process.env.OPENCODE_MODEL ?? "jev-1.13-free";
+
+export const useRemoteModel = API_KEY.length > 0;
+export const jevModel = useRemoteModel ? REMOTE_MODEL : undefined;
+
+export const serverUrl = useRemoteModel ? REMOTE_ENDPOINT : `http://${HOST}:${PORT}`;
+export const inferenceUrl = useRemoteModel
+  ? REMOTE_ENDPOINT
+  : `${serverUrl}/v1/systemone`;
+
+export function inferenceHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (API_KEY) headers.Authorization = `Bearer ${API_KEY}`;
+  return headers;
+}
 
 let server: ChildProcess | null = null;
 let starting: Promise<void> | null = null;
@@ -52,6 +80,10 @@ async function waitForHealth(timeoutMs = 120_000): Promise<void> {
  * Safe to call multiple times; only one process is spawned.
  */
 export async function startModelServer(): Promise<void> {
+  if (useRemoteModel) {
+    console.log(`[model] Using remote System One model ${jevModel} at ${REMOTE_ENDPOINT}`);
+    return;
+  }
   if (starting) return starting;
 
   starting = (async () => {
@@ -123,6 +155,7 @@ export async function startModelServer(): Promise<void> {
 }
 
 export function stopModelServer(): void {
+  if (useRemoteModel) return;
   if (!server) return;
   server.kill("SIGTERM");
   server = null;

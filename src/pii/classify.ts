@@ -1,4 +1,8 @@
-import { serverUrl } from "./llamaServer.js";
+import {
+  inferenceUrl,
+  inferenceHeaders,
+  jevModel,
+} from "./llamaServer.js";
 
 export type RiskTier = "none" | "weak" | "medium" | "strong";
 
@@ -260,11 +264,17 @@ export async function assessRisk(input: RiskInput): Promise<RiskAssessment> {
   const processStart = Date.now();
 
   try {
-    const res = await fetch(`${serverUrl}/v1/systemone`, {
+    const requestBody: Record<string, unknown> = {
+      state: buildState(input),
+      questions: QUESTIONS,
+    };
+    if (jevModel) requestBody.model = jevModel;
+
+    const res = await fetch(inferenceUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: inferenceHeaders(),
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      body: JSON.stringify({ state: buildState(input), questions: QUESTIONS }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!res.ok) {
