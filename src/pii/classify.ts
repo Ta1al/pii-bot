@@ -62,23 +62,29 @@ const KIND_RESCUE_MEDIUM_SUPPORT = Number(
 const TIMEOUT_MS = Number(process.env.RISK_TIMEOUT_MS ?? 120_000);
 const MAX_PENDING = Number(process.env.RISK_MAX_PENDING ?? 200);
 
-const QUESTIONS = {
+function buildQuestions(current: string) {
+  const currentBlock = `Current message from me:\n${current}`;
+
+  return {
   tier: {
     type: "choice",
     instructions:
-      "Read the whole conversation. The current message is the last line and " +
-      "was written by me. Judge only information about me, not information " +
-      "about somebody else or a hypothetical person. Combine compatible clues " +
-      "from the current message, earlier messages, and the replied-to message. " +
-      "A clue may be indirect or identifying only in combination, but do not " +
-      "treat generic personal conversation as risky merely because it is true " +
-      "about me. Rate whether a stranger could use the resulting information " +
-      "to identify, locate, contact, profile, manipulate, impersonate, access, " +
-      "or target me. Resolve ordinary conversational ellipsis and fragments: " +
-      "a short current message can complete or specify a first-person fact " +
-      "introduced earlier by the same speaker. The current message must add, " +
-      "confirm, or complete the risky fact; do not flag it only because an " +
-      "unrelated earlier message contained personal information.",
+      "The state contains earlier messages in this channel (and any message " +
+      "the current one replies to). The current message, written by me, is " +
+      "given in this question. Judge only information about me, not " +
+      "information about somebody else or a hypothetical person. Combine " +
+      "compatible clues from the current message, earlier messages, and the " +
+      "replied-to message. A clue may be indirect or identifying only in " +
+      "combination, but do not treat generic personal conversation as risky " +
+      "merely because it is true about me. Rate whether a stranger could use " +
+      "the resulting information to identify, locate, contact, profile, " +
+      "manipulate, impersonate, access, or target me. Resolve ordinary " +
+      "conversational ellipsis and fragments: a short current message can " +
+      "complete or specify a first-person fact introduced earlier by the same " +
+      "speaker. The current message must add, confirm, or complete the risky " +
+      "fact; do not flag it only because an unrelated earlier message " +
+      "contained personal information.\n\n" +
+      currentBlock,
     criteria: {
       none:
       "No actionable identifying or targeting information about me. This " +
@@ -111,13 +117,17 @@ const QUESTIONS = {
   kind: {
     type: "choice",
     instructions:
-      "Identify the main kind of identifying information about me revealed by " +
-      "the conversation. Consider the current message together with compatible " +
-      "earlier clues. Ignore details about other people, examples, and topics " +
-      "that are not connected to me. Resolve short replies and fragments using " +
-      "the same-speaker context. Choose none when the message only mentions " +
-      "a normal personal topic without creating a useful way to identify, " +
-      "locate, contact, profile, manipulate, or target me.",
+      "The state contains earlier messages in this channel (and any message " +
+      "the current one replies to). The current message, written by me, is " +
+      "given in this question. Identify the main kind of identifying " +
+      "information about me revealed by it. Consider the current message " +
+      "together with compatible earlier clues. Ignore details about other " +
+      "people, examples, and topics that are not connected to me. Resolve " +
+      "short replies and fragments using the same-speaker context. Choose none " +
+      "when the message only mentions a normal personal topic without creating " +
+      "a useful way to identify, locate, contact, profile, manipulate, or " +
+      "target me.\n\n" +
+      currentBlock,
     criteria: {
       none: "No identifying detail about me",
       contact:
@@ -151,7 +161,8 @@ const QUESTIONS = {
         "other vulnerabilities not better described by another kind",
     },
   },
-} as const;
+  };
+}
 
 interface ChoiceAnswer {
   type: "choice";
@@ -222,8 +233,9 @@ export function buildState(input: RiskInput): string {
     );
   }
 
-  const currentEntry = context[context.length - 1];
-  parts.push(`Current message from me:\n${currentEntry.content}`);
+  if (parts.length === 0) {
+    parts.push("No earlier messages in this channel.");
+  }
 
   return parts.join("\n");
 }
@@ -266,7 +278,7 @@ export async function assessRisk(input: RiskInput): Promise<RiskAssessment> {
   try {
     const requestBody: Record<string, unknown> = {
       state: buildState(input),
-      questions: QUESTIONS,
+      questions: buildQuestions(input.current),
     };
     if (jevModel) requestBody.model = jevModel;
 
